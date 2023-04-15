@@ -1,9 +1,14 @@
-FROM        cm2network/steamcmd:root
+FROM        debian:buster-slim
 
 LABEL       MAINTAINER="https://github.com/Hermsi1337/"
 
 ARG         ARK_TOOLS_VERSION="1.6.61a"
 ARG         IMAGE_VERSION="dev"
+ARG         PUID=1000
+
+ENV         USER steam
+ENV         HOMEDIR "/home/${USER}"
+ENV         STEAMCMDDIR "${HOMEDIR}/steamcmd"
 
 ENV         IMAGE_VERSION="${IMAGE_VERSION}" \
             SESSION_NAME="Dockerized ARK Server by github.com/hermsi1337" \
@@ -31,15 +36,30 @@ ENV         ARK_TOOLS_DIR="${ARK_SERVER_VOLUME}/arkmanager"
 
 RUN         set -x && \
             apt-get update && \
-            apt-get install -y  perl-modules \
+            apt-get install -y --no-install-recommends --no-install-suggests \
+                                lib32stdc++6 \
+                                ca-certificates \
+                                locales \
+                                perl-modules \
                                 curl \
                                 lsof \
                                 libc6-i386 \
-                                lib32gcc-s1 \
+                                lib32gcc1 \
                                 bzip2 \
                                 gosu \
-                                cron \
-            && \
+                                cron && \
+            sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && \
+            dpkg-reconfigure --frontend=noninteractive locales && \
+            useradd -u "${PUID}" -m "${USER}" && \            
+            su "${USER}" -c \
+		"mkdir -p \"${STEAMCMDDIR}\" \
+		&& curl -fsSL 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz' | tar xvzf - -C \"${STEAMCMDDIR}\" \
+		&& \"./${STEAMCMDDIR}/steamcmd.sh\" +quit \
+		&& mkdir -p \"${HOMEDIR}/.steam/sdk32\" \
+		&& ln -s \"${STEAMCMDDIR}/linux32/steamclient.so\" \"${HOMEDIR}/.steam/sdk32/steamclient.so\" \
+		&& ln -s \"${STEAMCMDDIR}/linux32/steamcmd\" \"${STEAMCMDDIR}/linux32/steam\" \
+		&& ln -s \"${STEAMCMDDIR}/steamcmd.sh\" \"${STEAMCMDDIR}/steam.sh\"" && \
+            ln -s "${STEAMCMDDIR}/linux64/steamclient.so" "/usr/lib/x86_64-linux-gnu/steamclient.so" && \
             curl -L "https://github.com/arkmanager/ark-server-tools/archive/v${ARK_TOOLS_VERSION}.tar.gz" \
                 | tar -xvzf - -C /tmp/ && \
             bash -c "cd /tmp/ark-server-tools-${ARK_TOOLS_VERSION}/tools && bash -x install.sh ${USER}" && \
@@ -47,7 +67,7 @@ RUN         set -x && \
             install -d -o ${USER} ${ARK_SERVER_VOLUME} && \
             su ${USER} -c "bash -x ${STEAMCMDDIR}/steamcmd.sh +login anonymous +quit" && \
             apt-get -qq autoclean && apt-get -qq autoremove && apt-get -qq clean && \
-            rm -rf /tmp/* /var/cache/*
+            rm -rf /tmp/* /var/cache/* /var/lib/apt/lists/*
 
 COPY        bin/    /
 COPY        conf.d  ${TEMPLATE_DIRECTORY}
